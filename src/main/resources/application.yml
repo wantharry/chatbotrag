@@ -20,7 +20,7 @@ spring:
   ai:
     # --- Step 2.7: Company LLM (Groq, OpenAI-compatible API) ---
     openai:
-      base-url: https://api.groq.com/openai
+      base-url: https://api.groq.com/openai/v1
       api-key: ${GROQ_API_KEY}
       chat:
         options:

@@ -25,7 +25,13 @@ public class IngestionService {
 
     // ~300-token chunks: must stay within the all-MiniLM-L6-v2 embedding window (~512
     // tokens); larger chunks get silently truncated and their tail becomes unsearchable
-    private final TokenTextSplitter splitter = new TokenTextSplitter(300, 150, 5, 10000, true);
+    private final TokenTextSplitter splitter = TokenTextSplitter.builder()
+            .withChunkSize(300)
+            .withMinChunkSizeChars(150)
+            .withMinChunkLengthToEmbed(5)
+            .withMaxNumChunks(10000)
+            .withKeepSeparator(true)
+            .build();
 
     public IngestionService(VectorStore vectorStore) {
         this.vectorStore = vectorStore;
