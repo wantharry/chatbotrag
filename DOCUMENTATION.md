@@ -42,8 +42,8 @@ Why RAG instead of just asking an LLM directly?
 
 | Component | Technology | Role |
 |-----------|-----------|------|
-| Web framework | **Spring Boot 3.4** (Java 17) | REST API + serves the chat UI |
-| AI framework | **Spring AI 1.0** | Glue for LLM, embeddings, vector store, document parsing |
+| Web framework | **Spring Boot 4.1** (Java 17) | REST API + serves the chat UI |
+| AI framework | **Spring AI 2.0** | Glue for LLM, embeddings, vector store, document parsing |
 | LLM (the "brain") | **Groq** — `llama-3.3-70b-versatile` | Generates the final answers. Accessed through Groq's OpenAI-compatible API |
 | Embedding model | **all-MiniLM-L6-v2** (ONNX, runs locally in the JVM) | Converts text into 384-dimension vectors for similarity search. Free, no API calls |
 | Vector database | **PostgreSQL 16 + pgvector** (Docker container) | Stores text chunks and their vectors; performs similarity search |
@@ -99,7 +99,8 @@ spring:
     url: jdbc:postgresql://localhost:5432/chatbot   # the Docker container
   ai:
     openai:
-      base-url: https://api.groq.com/openai          # Groq's OpenAI-compatible endpoint
+      base-url: https://api.groq.com/openai/v1       # Groq's OpenAI-compatible endpoint
+                                                     # (/v1 required since Spring AI 2.0 — see §7 Phase 8)
       api-key: ${GROQ_API_KEY}                       # from environment variable — never hardcoded
       chat:
         options:
@@ -317,6 +318,41 @@ did Hera choose as her favorite?") now answer correctly with citations.
 **Lesson:** chunk size must never exceed the embedding model's context window;
 otherwise storage silently loses meaning.
 
+### Phase 6 — Migration from Colima to Docker Desktop
+
+The user installed Docker Desktop and wanted to see containers in its GUI.
+Containers/images/volumes don't transfer between engines (separate VMs), so:
+
+1. Stopped the Colima-side container and the Colima VM (`colima stop`)
+2. Switched the CLI: `docker context use desktop-linux`
+3. `docker compose up -d` re-created `chatbot-postgres` inside Docker Desktop
+4. Re-ingested documents (the pgvector volume did not carry over)
+
+Colima remains installed at `~/tools/bin/colima` as a free fallback engine.
+
+### Phase 7 — Version control
+
+- `git init`, repo-local identity (`wantharry` + GitHub noreply email)
+- Verified no secrets in tracked files before the initial commit
+- Generated an ed25519 SSH key (`~/.ssh/id_ed25519`), added to GitHub
+- Pushed to **github.com/wantharry/chatbotrag** (branch `main`)
+
+### Phase 8 — Upgrade to Spring Boot 4.1.0 + Spring AI 2.0.0
+
+Bumped `spring-boot-starter-parent` 3.4.5 → **4.1.0** and `spring-ai-bom`
+1.0.0 → **2.0.0**. Two breaking changes surfaced and were fixed:
+
+1. **`TokenTextSplitter` constructor removed** — Spring AI 2.0 added a
+   separator-characters parameter; migrated to the builder API
+   (`TokenTextSplitter.builder().withChunkSize(300)…`), keeping identical settings.
+2. **Groq base-url needed `/v1`** — Spring AI 2.0 switched to the official
+   OpenAI Java SDK, which no longer appends `/v1` automatically. Chat calls
+   404'd against `/openai/chat/completions` until the config was changed to
+   `https://api.groq.com/openai/v1`.
+
+Re-verified end-to-end: startup, queries against existing pgvector data, and
+fresh ingestion + query. Still on Java 17 (Boot 4.1 supports it).
+
 ---
 
 ## 8. API Reference
@@ -344,8 +380,7 @@ Open `http://localhost:8080/` — upload documents and chat interactively.
 ## 9. How to Run Everything
 
 ```bash
-# 1. Start the container runtime + database
-colima start
+# 1. Start Docker Desktop (or `colima start` for the fallback engine), then:
 cd /Users/vijjimuk/V_claude_code/Chatbot
 docker compose up -d
 

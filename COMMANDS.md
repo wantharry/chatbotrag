@@ -280,6 +280,82 @@ docker exec chatbot-postgres psql -U chatbot -d chatbot \
 
 ---
 
+## Phase 8 — Version control: git init, commit, push to GitHub
+
+```bash
+# Initialize repo (folder wasn't under git)
+cd /Users/vijjimuk/V_claude_code/Chatbot
+git init                              # → branch main
+
+# Repo-local identity (GitHub noreply email keeps real email private)
+git config user.name "wantharry"
+git config user.email "8313871+wantharry@users.noreply.github.com"
+
+# Safety scan: make sure the API key isn't in any tracked file
+grep -rn "gsk_" --include="*" . | grep -v GROQ_API_KEY   # → no secrets found
+
+# Stage + initial commit (target/ excluded by .gitignore)
+git add -A
+git commit -m "Initial commit: RAG chatbot with Spring AI, pgvector, and Groq" \
+           -m "<body>...Co-authored-by: Copilot ..."
+
+# SSH setup for push (no key existed yet)
+ssh-keyscan -t ed25519,rsa,ecdsa github.com >> ~/.ssh/known_hosts
+ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -N "" -C "wantharry@github"
+cat ~/.ssh/id_ed25519.pub             # → added manually at github.com/settings/ssh/new
+ssh -T git@github.com                 # → "Hi wantharry! You've successfully authenticated"
+
+# Add remote and push
+git remote add origin git@github.com:wantharry/chatbotrag.git
+git push -u origin main               # → repo live at github.com/wantharry/chatbotrag
+```
+
+---
+
+## Phase 9 — Upgrade to Spring Boot 4.1.0 + Spring AI 2.0.0
+
+```bash
+# Confirm what's actually released (spring.io claimed 4.1.x; verified on Maven Central)
+curl -s "https://repo1.maven.org/maven2/org/springframework/boot/spring-boot-starter-parent/maven-metadata.xml" \
+  | grep -o '<latest>[^<]*</latest>'                     # → 4.1.0
+curl -s "https://repo1.maven.org/maven2/org/springframework/ai/spring-ai-bom/maven-metadata.xml" \
+  | grep -o '<latest>[^<]*</latest>'                     # → 2.0.0
+
+# pom.xml edited: Boot 3.4.5 → 4.1.0, Spring AI 1.0.0 → 2.0.0
+
+# Build attempt 1 — FAILED:
+mvn clean compile
+# → "no suitable constructor found for TokenTextSplitter(int,int,int,int,boolean)"
+# Fix (editor): migrated IngestionService to TokenTextSplitter.builder()
+
+mvn clean compile                     # → success
+
+# Run attempt — chat returned 500:
+grep -A15 "ERROR" /tmp/chatbot.log
+# → 404: Unknown request URL: POST /openai/chat/completions
+# Cause: Spring AI 2.0 uses the official OpenAI SDK, which doesn't append /v1
+# Fix (editor): application.yml base-url → https://api.groq.com/openai/v1
+
+# Restart and verify end-to-end
+kill <java-PID>
+export GROQ_API_KEY=<GROQ_API_KEY>
+mvn spring-boot:run > /tmp/chatbot.log 2>&1 &
+curl -H "Content-Type: application/json" \
+     -d '{"question":"Was Hera tall or short?"}' http://localhost:8080/api/chat   # ✅
+printf 'The Zephyr 9000 blender has a 12-year warranty...' > /tmp/widget.txt
+curl -F "file=@/tmp/widget.txt" http://localhost:8080/api/documents/upload         # ✅ fresh ingestion
+curl -H "Content-Type: application/json" \
+     -d '{"question":"How long is the Zephyr 9000 warranty?"}' http://localhost:8080/api/chat  # ✅
+rm /tmp/widget.txt
+
+# Commit + push the upgrade
+git add -A
+git commit -m "Upgrade to Spring Boot 4.1.0 and Spring AI 2.0.0" -m "<body>..."
+git push                              # → 9a31003 on main
+```
+
+---
+
 ## Quick reference — recurring commands
 
 ```bash
@@ -288,6 +364,9 @@ cd /Users/vijjimuk/V_claude_code/Chatbot
 docker compose up -d
 export GROQ_API_KEY=<GROQ_API_KEY>
 mvn spring-boot:run
+
+# Publish changes
+git add -A && git commit -m "..." && git push
 
 # Status checks
 docker ps
