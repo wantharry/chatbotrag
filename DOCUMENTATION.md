@@ -118,6 +118,34 @@ spring:
         index-type: HNSW                             # fast approximate nearest-neighbor index
 ```
 
+### Switching LLM providers (Spring profiles)
+
+The LLM and the embedding model are independent — embeddings are always local,
+so switching LLM providers needs **no re-ingestion**. A `gemini` profile in the
+same `application.yml` points the OpenAI-compatible client at Google AI Studio:
+
+```yaml
+spring:
+  config:
+    activate:
+      on-profile: gemini
+  ai:
+    openai:
+      base-url: https://generativelanguage.googleapis.com/v1beta/openai
+      api-key: ${GOOGLE_API_KEY}
+      chat:
+        options:
+          model: gemini-2.5-flash
+```
+
+| Provider | Activate with | Key env var | Free-tier limit |
+|---|---|---|---|
+| **Groq** (default) | `mvn spring-boot:run` | `GROQ_API_KEY` | 100k tokens/day |
+| **Gemini** | `mvn spring-boot:run -Dspring-boot.run.profiles=gemini` | `GOOGLE_API_KEY` | ~250 requests/day |
+
+Useful when one provider's daily free quota is exhausted — just restart on the
+other profile.
+
 ---
 
 ## 5. HOW STORAGE WORKS (Ingestion Pipeline, in Detail)
@@ -466,6 +494,10 @@ export GROQ_API_KEY=<your-groq-api-key>
 
 # 3. Run the app
 mvn spring-boot:run
+
+#    …or run against Google Gemini instead (e.g. when Groq's daily quota is hit):
+#    export GOOGLE_API_KEY=<your-google-ai-studio-key>
+#    mvn spring-boot:run -Dspring-boot.run.profiles=gemini
 
 # 4. Open http://localhost:8080/
 ```

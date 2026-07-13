@@ -46,3 +46,20 @@ spring:
         dimensions: 384
         distance-type: COSINE_DISTANCE
         index-type: HNSW
+
+---
+# --- Alternative LLM: Google AI Studio (Gemini) via its OpenAI-compatible API ---
+# Activate with:  mvn spring-boot:run -Dspring-boot.run.profiles=gemini
+# (requires GOOGLE_API_KEY env var; embeddings stay local, so no re-ingestion needed)
+spring:
+  config:
+    activate:
+      on-profile: gemini
+  ai:
+    openai:
+      base-url: https://generativelanguage.googleapis.com/v1beta/openai
+      api-key: ${GOOGLE_API_KEY}
+      chat:
+        options:
+          model: gemini-2.5-flash
+          temperature: 0.2

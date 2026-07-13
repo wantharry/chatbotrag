@@ -418,6 +418,35 @@ curl -H "Content-Type: application/json" \
 
 ---
 
+## Phase 11 — Add Google Gemini as switchable LLM provider
+
+```bash
+# Groq free tier hit its 100k tokens/day cap during Step 6 testing → added a
+# second provider. Verified the Google AI Studio key against the
+# OpenAI-compatible endpoint first:
+curl -H "Authorization: Bearer $GOOGLE_API_KEY" -H "Content-Type: application/json" \
+     -d '{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"Say OK"}],"max_tokens":10}' \
+     https://generativelanguage.googleapis.com/v1beta/openai/chat/completions   # ✅ 200
+
+# Added a `gemini` Spring profile document to application.yml:
+#   base-url: https://generativelanguage.googleapis.com/v1beta/openai
+#   api-key: ${GOOGLE_API_KEY}
+#   model: gemini-2.5-flash
+
+# Restart on the gemini profile (embeddings are local — no re-ingestion needed)
+kill <java-PID>
+export GOOGLE_API_KEY=<GOOGLE_API_KEY>
+mvn spring-boot:run -Dspring-boot.run.profiles=gemini > /tmp/chatbot.log 2>&1 &
+
+# Verify — answered from the PDF via Gemini
+curl -H "Content-Type: application/json" \
+     -d '{"question":"Was Hera tall or short?"}' http://localhost:8080/api/chat  # ✅
+
+# Switch back to Groq anytime: restart without the profile flag
+```
+
+---
+
 ## Quick reference — recurring commands
 
 ```bash
