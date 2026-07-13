@@ -33,6 +33,11 @@ spring:
     # --- Step 2.9: Local embedding model (all-MiniLM-L6-v2 via ONNX) ---
     model:
       embedding: transformers
+    transformers:
+      embedding:
+        # Fixed cache dir so the ~90MB ONNX model downloads once, not on every restart
+        cache:
+          directory: ${user.home}/.cache/chatbot-onnx
 
     # --- Step 2.8: pgvector configuration ---
     vectorstore:

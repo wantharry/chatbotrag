@@ -356,6 +356,68 @@ git push                              # → 9a31003 on main
 
 ---
 
+## Phase 10 — Step 6 production hardening (streaming, history, doc management, retention, eval)
+
+```bash
+# Commit-before-changes check
+git status --short                    # clean tree
+
+# (Code written: DocumentEntity/ChatSession/ChatMessage entities + repositories,
+#  RetentionService, ConfigController, rewritten Ingestion/RagService,
+#  new Chat/Document controller endpoints, streaming UI, eval harness)
+
+mvn clean compile                     # ✅ BUILD SUCCESS
+
+# First restart failed after 5.5 min:
+#   ORT_INVALID_PROTOBUF — Failed to load model
+# Diagnosis: Spring AI used a randomized temp dir per run, so the 90MB ONNX
+# embedding model re-downloaded on EVERY restart; one interrupted download
+# left a truncated model.onnx (89,632,583 vs 90,387,630 bytes).
+du -sh $TMPDIR/spring-ai-model-cache*/*        # found 5 duplicate caches
+
+# Fix: pin the cache dir in application.yml
+#   spring.ai.transformers.embedding.cache.directory: ${user.home}/.cache/chatbot-onnx
+mkdir -p ~/.cache/chatbot-onnx
+cp -R $TMPDIR/spring-ai-model-cache<good-run>/* ~/.cache/chatbot-onnx/   # seed with intact copy
+rm -rf $TMPDIR/spring-ai-model-cache* $TMPDIR/spring-ai-onnx-generative  # clean up
+
+# Restart — now starts in ~9s instead of 5+ min
+mvn spring-boot:run > /tmp/chatbot.log 2>&1 &
+
+# Verify all new endpoints
+curl http://localhost:8080/api/config                        # {"retentionDays":90}
+curl http://localhost:8080/api/documents                     # [] (legacy chunks have no registry row)
+curl -H "Content-Type: application/json" \
+     -d '{"question":"Was Hera tall or short?"}' http://localhost:8080/api/chat
+                                                             # ✅ answer + sessionId
+curl -H "Content-Type: application/json" \
+     -d '{"sessionId":"<uuid>","question":"Which bird was sacred to her?"}' \
+     http://localhost:8080/api/chat                          # ✅ memory works
+curl http://localhost:8080/api/chat/<uuid>/history           # ✅ all turns persisted
+curl -N -H "Content-Type: application/json" \
+     -d '{"question":"Who was Zeus?"}' http://localhost:8080/api/chat/stream
+                                                             # ✅ SSE meta/token/done events
+
+# Document lifecycle: upload → list → ask → delete → confirm chunks gone
+printf 'The Atlantis Project code name is BLUE HERON...' > /tmp/atlantis.txt
+curl -F "file=@/tmp/atlantis.txt" http://localhost:8080/api/documents/upload   # → id
+curl http://localhost:8080/api/documents                                        # listed ✅
+curl -H "Content-Type: application/json" \
+     -d '{"question":"What is the Atlantis Project code name?"}' \
+     http://localhost:8080/api/chat                          # "BLUE HERON" ✅
+curl -X DELETE http://localhost:8080/api/documents/<id>      # deleted ✅
+curl -H "Content-Type: application/json" \
+     -d '{"question":"What is the Atlantis Project code name?"}' \
+     http://localhost:8080/api/chat                          # refuses ✅ (chunks gone)
+
+# Eval harness
+./eval/run-eval.sh
+# 2 passed, then Groq free tier hit its 100k tokens/day limit (429 → empty
+# answers). Not a RAG failure — rerun after the daily window resets.
+```
+
+---
+
 ## Quick reference — recurring commands
 
 ```bash

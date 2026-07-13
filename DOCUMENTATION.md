@@ -353,6 +353,46 @@ Bumped `spring-boot-starter-parent` 3.4.5 → **4.1.0** and `spring-ai-bom`
 Re-verified end-to-end: startup, queries against existing pgvector data, and
 fresh ingestion + query. Still on Java 17 (Boot 4.1 supports it).
 
+### Phase 9 — Step 6 production hardening
+
+Implemented everything from Step 6 of the original plan except SSO (Step 5,
+deliberately deferred):
+
+1. **Streaming responses** — `POST /api/chat/stream` returns Server-Sent Events
+   (`meta` event with sources/sessionId, `token` events per LLM token, `done`).
+   Servlet `SseEmitter` bridged to Spring AI's `Flux<String>` stream. The UI
+   renders tokens as they arrive.
+2. **Chat history & memory** — new JPA entities `ChatSession` + `ChatMessage`
+   (auto-created tables). Every turn is persisted with its retrieved sources;
+   the last 10 messages of a session are replayed into the prompt so
+   follow-up questions work. The UI stores the `sessionId` in localStorage and
+   restores the conversation on reload.
+3. **Document management** — new `documents` registry table
+   (`DocumentEntity`). Upload now tags every chunk with a `docId`;
+   `GET /api/documents` lists uploads, `DELETE /api/documents/{id}` removes
+   the registry row **and** its chunks from the vector store via a metadata
+   filter expression. Verified: after delete, the same question is refused.
+   (Documents ingested before this phase have no registry row — re-upload
+   them to manage them.)
+4. **Retention policy** — `RetentionService` purges chat messages older than
+   `chatbot.retention.days` (default 90) daily at 03:00; `GET /api/config`
+   exposes the value and the UI shows a retention notice.
+5. **Evaluation set** — `eval/eval-set.json` (8 Q&A pairs incl. a grounding
+   check) + `eval/run-eval.sh`, a keyword-check runner to re-run after any
+   tuning change.
+
+Two operational findings during verification:
+
+- **ONNX model cache fix** — Spring AI was using a *randomized* temp directory
+  for the 90 MB embedding model, so every restart re-downloaded it (5+ min
+  startups) and one interrupted download left a truncated `model.onnx`
+  (`ORT_INVALID_PROTOBUF` crash). Fixed by pinning
+  `spring.ai.transformers.embedding.cache.directory` to
+  `~/.cache/chatbot-onnx`. Startup is now ~9 seconds.
+- **Groq free-tier limit** — the free tier allows 100k tokens/day; heavy
+  testing exhausts it and requests then 500 with a 429 from Groq. The eval
+  runner shows this as empty answers.
+
 ---
 
 ## 8. API Reference
@@ -360,16 +400,53 @@ fresh ingestion + query. Still on Java 17 (Boot 4.1 supports it).
 ### Upload a document
 ```bash
 curl -F "file=@/path/to/document.pdf" http://localhost:8080/api/documents/upload
-# → {"filename":"document.pdf","chunksStored":162,"status":"ingested"}
+# → {"filename":"document.pdf","chunksStored":162,"status":"ingested","id":"<uuid>"}
 ```
 
-### Ask a question
+### List / delete documents
+```bash
+curl http://localhost:8080/api/documents
+# → [{"id":"<uuid>","filename":"document.pdf","uploadedAt":"…","chunkCount":162}]
+
+curl -X DELETE http://localhost:8080/api/documents/<uuid>
+# → {"id":"<uuid>","status":"deleted"}   (also removes its chunks from pgvector)
+```
+
+### Ask a question (blocking)
 ```bash
 curl -H "Content-Type: application/json" \
      -d '{"question":"Was Hera tall or short?"}' \
      http://localhost:8080/api/chat
-# → {"answer":"Hera was described as 'the tall and beautiful goddess'. ...",
+# → {"sessionId":"<uuid>","answer":"Hera was described as 'tall and beautiful'…",
 #    "sources":["greek_mythology.pdf"]}
+
+# Follow-up in the same conversation — pass the sessionId back:
+curl -H "Content-Type: application/json" \
+     -d '{"sessionId":"<uuid>","question":"Which bird was sacred to her?"}' \
+     http://localhost:8080/api/chat
+```
+
+### Ask a question (streaming, SSE)
+```bash
+curl -N -H "Content-Type: application/json" \
+     -d '{"question":"Who was Zeus?"}' \
+     http://localhost:8080/api/chat/stream
+# → event:meta   data:{"sources":[…],"sessionId":"<uuid>"}
+#   event:token  data:Ze
+#   event:token  data:us
+#   …
+#   event:done   data:
+```
+
+### Chat history & config
+```bash
+curl http://localhost:8080/api/chat/<sessionId>/history   # all turns in a session
+curl http://localhost:8080/api/config                     # → {"retentionDays":90}
+```
+
+### Evaluation
+```bash
+./eval/run-eval.sh          # replays eval/eval-set.json against /api/chat
 ```
 
 ### Browser UI
@@ -404,14 +481,15 @@ docker exec chatbot-postgres psql -U chatbot -d chatbot \
 
 ---
 
-## 10. Current Limitations & Roadmap (Steps 5–6)
+## 10. Current Limitations & Roadmap
+
+Step 6 (production hardening) is **done** — streaming ✅, chat history ✅,
+document management ✅, retention ✅, eval set ✅. Remaining:
 
 | Item | Description |
 |------|-------------|
 | **SSO / auth (Step 5)** | No authentication yet — anyone on localhost can use it. Plan: `spring-boot-starter-oauth2-resource-server`, JWT validation against a company identity provider, per-user document access via metadata `filterExpression` on retrieval |
-| **Streaming** | Answers arrive all at once. Plan: `.stream()` → `Flux<String>` over Server-Sent Events for token-by-token display |
-| **Chat history / memory** | Each question is independent; no follow-up context. Plan: `chat_sessions` + `chat_messages` tables keyed by user, Spring AI `ChatMemory` |
-| **Document management** | No list/delete endpoints yet (chunks can only be deleted via SQL). Plan: a `documents` JPA table + delete endpoint that also removes chunks |
-| **Retention & compliance** | No retention policy for stored content/history yet |
-| **Evaluation set** | Plan: 20–30 real Q&A pairs, re-tested after any tuning change (chunk size, topK, prompt, model) |
+| **Groq free-tier limit** | 100k tokens/day on the free tier; production use needs a paid tier or a company-hosted LLM endpoint |
+| **Eval set size** | 8 Q&A pairs today; grow to 20–30 drawn from real user questions |
+| **Legacy chunks** | Documents ingested before Phase 9 have no `docId`/registry row and can't be managed via the API — re-upload them |
 | **Duplicate uploads** | Uploading the same file twice stores its chunks twice (harmless for answers, wasteful for storage) |

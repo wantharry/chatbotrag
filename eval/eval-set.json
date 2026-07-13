@@ -1,0 +1,43 @@
+[
+  {
+    "question": "Was Hera tall or short?",
+    "expect_keywords": ["tall"],
+    "expect_source": "greek_mythology.pdf"
+  },
+  {
+    "question": "What bird did Hera choose as her favorite?",
+    "expect_keywords": ["peacock"],
+    "expect_source": "greek_mythology.pdf"
+  },
+  {
+    "question": "Who was the wife of Zeus?",
+    "expect_keywords": ["Hera"],
+    "expect_source": "greek_mythology.pdf"
+  },
+  {
+    "question": "Who was the god of fire and metal-working?",
+    "expect_keywords": ["Hephaestus"],
+    "expect_source": "greek_mythology.pdf"
+  },
+  {
+    "question": "Who was Hera's servant and messenger?",
+    "expect_keywords": ["Iris"],
+    "expect_source": "greek_mythology.pdf"
+  },
+  {
+    "question": "What was sacrificed to the sea monster to save the city?",
+    "expect_keywords": ["Andromeda"],
+    "expect_source": "greek_mythology.pdf"
+  },
+  {
+    "question": "What punishment did Hera give Echo?",
+    "expect_keywords": ["voice", "last word"],
+    "expect_source": "greek_mythology.pdf"
+  },
+  {
+    "question": "What is the dress code at Acme Corp?",
+    "expect_keywords": ["don't have that information"],
+    "expect_source": null,
+    "note": "grounding check: answer is NOT in any document"
+  }
+]
