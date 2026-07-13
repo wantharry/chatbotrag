@@ -447,6 +447,44 @@ curl -H "Content-Type: application/json" \
 
 ---
 
+## Phase 12 — Department-scoped documents and chat
+
+```bash
+# (Code written: Departments component + chatbot.departments config,
+#  department metadata on chunks, filterExpression on retrieval,
+#  department columns on documents/chat_sessions, department dropdown in UI)
+
+mvn clean compile                     # ✅ BUILD SUCCESS
+kill <java-PID>
+mvn spring-boot:run -Dspring-boot.run.profiles=gemini > /tmp/chatbot.log 2>&1 &
+
+# Config now exposes the department list
+curl http://localhost:8080/api/config
+# {"retentionDays":90,"departments":["General","HR","Engineering","Finance"]}
+
+# Department isolation test
+printf 'HR Policy: All employees receive 25 vacation days...' > /tmp/hr_policy.txt
+curl -F "file=@/tmp/hr_policy.txt" -F "department=HR" \
+     http://localhost:8080/api/documents/upload              # ✅ tagged HR
+curl -F "file=@/tmp/hr_policy.txt" -F "department=Sales" \
+     http://localhost:8080/api/documents/upload              # ✅ 400 unknown department
+curl "http://localhost:8080/api/documents?department=HR"          # ✅ listed
+curl "http://localhost:8080/api/documents?department=Engineering" # ✅ []
+curl -H "Content-Type: application/json" \
+     -d '{"question":"How many vacation days?","department":"HR"}' \
+     http://localhost:8080/api/chat                          # ✅ "25 vacation days"
+curl -H "Content-Type: application/json" \
+     -d '{"question":"How many vacation days?","department":"Engineering"}' \
+     http://localhost:8080/api/chat                          # ✅ refused (no Engineering docs)
+
+# Tag legacy (pre-department) chunks as General so they stay searchable
+docker exec chatbot-postgres psql -U chatbot -d chatbot -c \
+  "UPDATE vector_store SET metadata = jsonb_set(metadata::jsonb, '{department}', '\"General\"')::json
+   WHERE metadata::jsonb->>'department' IS NULL;"            # UPDATE 487
+```
+
+---
+
 ## Quick reference — recurring commands
 
 ```bash

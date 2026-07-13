@@ -421,20 +421,51 @@ Two operational findings during verification:
   testing exhausts it and requests then 500 with a 429 from Groq. The eval
   runner shows this as empty answers.
 
+### Phase 10 — Google Gemini as switchable LLM provider
+
+After hitting Groq's daily quota, added a `gemini` Spring profile pointing the
+same OpenAI-compatible client at Google AI Studio (`gemini-2.5-flash`,
+`GOOGLE_API_KEY` env var). Because embeddings are local, switching providers
+needs no re-ingestion. See §4 "Switching LLM providers".
+
+### Phase 11 — Department-scoped documents and chat
+
+A stepping stone to Step 5 (SSO): every upload and question is scoped to one
+department, using pgvector **metadata filtering** — the exact mechanism SSO
+will later drive from JWT group claims instead of a UI dropdown.
+
+- `chatbot.departments` config property (default `General,HR,Engineering,Finance`),
+  validated by the `Departments` component and exposed via `GET /api/config`
+- Ingestion tags every chunk with `department` metadata; `documents` and
+  `chat_sessions` tables gained a `department` column
+- Retrieval adds `filterExpression(eq("department", dept))` to the similarity
+  search — HR questions can never surface Engineering chunks, even if
+  semantically similar
+- API: upload requires a `department` form field, document list requires
+  `?department=`, chat requests require a `department` JSON field (unknown
+  values → 400 with the valid list)
+- UI: department dropdown in the header; per-department chat sessions
+  (localStorage key `chatSessionId:<dept>`) and document sidebar
+- Legacy chunks (uploaded before this phase) were tagged `General` via SQL
+
+Verified: HR upload answered HR questions with sources; the same question as
+Engineering was refused; invalid departments rejected with a 400.
+
 ---
 
 ## 8. API Reference
 
 ### Upload a document
 ```bash
-curl -F "file=@/path/to/document.pdf" http://localhost:8080/api/documents/upload
-# → {"filename":"document.pdf","chunksStored":162,"status":"ingested","id":"<uuid>"}
+curl -F "file=@/path/to/document.pdf" -F "department=HR" \
+     http://localhost:8080/api/documents/upload
+# → {"filename":"document.pdf","chunksStored":162,"status":"ingested","id":"<uuid>","department":"HR"}
 ```
 
 ### List / delete documents
 ```bash
-curl http://localhost:8080/api/documents
-# → [{"id":"<uuid>","filename":"document.pdf","uploadedAt":"…","chunkCount":162}]
+curl "http://localhost:8080/api/documents?department=HR"
+# → [{"id":"<uuid>","filename":"document.pdf","uploadedAt":"…","chunkCount":162,"department":"HR"}]
 
 curl -X DELETE http://localhost:8080/api/documents/<uuid>
 # → {"id":"<uuid>","status":"deleted"}   (also removes its chunks from pgvector)
@@ -443,21 +474,21 @@ curl -X DELETE http://localhost:8080/api/documents/<uuid>
 ### Ask a question (blocking)
 ```bash
 curl -H "Content-Type: application/json" \
-     -d '{"question":"Was Hera tall or short?"}' \
+     -d '{"question":"Was Hera tall or short?","department":"General"}' \
      http://localhost:8080/api/chat
 # → {"sessionId":"<uuid>","answer":"Hera was described as 'tall and beautiful'…",
 #    "sources":["greek_mythology.pdf"]}
 
 # Follow-up in the same conversation — pass the sessionId back:
 curl -H "Content-Type: application/json" \
-     -d '{"sessionId":"<uuid>","question":"Which bird was sacred to her?"}' \
+     -d '{"sessionId":"<uuid>","question":"Which bird was sacred to her?","department":"General"}' \
      http://localhost:8080/api/chat
 ```
 
 ### Ask a question (streaming, SSE)
 ```bash
 curl -N -H "Content-Type: application/json" \
-     -d '{"question":"Who was Zeus?"}' \
+     -d '{"question":"Who was Zeus?","department":"General"}' \
      http://localhost:8080/api/chat/stream
 # → event:meta   data:{"sources":[…],"sessionId":"<uuid>"}
 #   event:token  data:Ze
@@ -469,7 +500,7 @@ curl -N -H "Content-Type: application/json" \
 ### Chat history & config
 ```bash
 curl http://localhost:8080/api/chat/<sessionId>/history   # all turns in a session
-curl http://localhost:8080/api/config                     # → {"retentionDays":90}
+curl http://localhost:8080/api/config   # → {"retentionDays":90,"departments":["General","HR",…]}
 ```
 
 ### Evaluation
@@ -516,11 +547,12 @@ docker exec chatbot-postgres psql -U chatbot -d chatbot \
 ## 10. Current Limitations & Roadmap
 
 Step 6 (production hardening) is **done** — streaming ✅, chat history ✅,
-document management ✅, retention ✅, eval set ✅. Remaining:
+document management ✅, retention ✅, eval set ✅.
+Department scoping (Phase 11) is done. Remaining:
 
 | Item | Description |
 |------|-------------|
-| **SSO / auth (Step 5)** | No authentication yet — anyone on localhost can use it. Plan: `spring-boot-starter-oauth2-resource-server`, JWT validation against a company identity provider, per-user document access via metadata `filterExpression` on retrieval |
+| **SSO / auth (Step 5)** | No authentication yet — anyone on localhost can use it, and the department is chosen by the user (trust-based). Plan: `spring-boot-starter-oauth2-resource-server`, JWT validation against a company identity provider; the department filter then comes from the JWT's group claims instead of the request |
 | **Groq free-tier limit** | 100k tokens/day on the free tier; production use needs a paid tier or a company-hosted LLM endpoint |
 | **Eval set size** | 8 Q&A pairs today; grow to 20–30 drawn from real user questions |
 | **Legacy chunks** | Documents ingested before Phase 9 have no `docId`/registry row and can't be managed via the API — re-upload them |

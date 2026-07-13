@@ -16,6 +16,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.vectorstore.SearchRequest;
 import org.springframework.ai.vectorstore.VectorStore;
+import org.springframework.ai.vectorstore.filter.FilterExpressionBuilder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,12 +66,13 @@ public class RagService {
 
     /** Blocking ask (kept for the JSON API). */
     @Transactional
-    public RagAnswer ask(UUID sessionId, String question) {
-        UUID session = ensureSession(sessionId);
-        Retrieval retrieval = retrieve(question);
+    public RagAnswer ask(UUID sessionId, String question, String department) {
+        UUID session = ensureSession(sessionId, department);
+        Retrieval retrieval = retrieve(question, department);
         if (retrieval == null) {
             return new RagAnswer(session,
-                    "I don't have any documents to search yet. Please upload documents first.",
+                    "I don't have any documents for the " + department
+                            + " department yet. Please upload documents first.",
                     List.of());
         }
 
@@ -89,11 +91,12 @@ public class RagService {
      * Streaming ask (Step 6.20): returns the token stream; persists the full
      * answer once the stream completes.
      */
-    public StreamingAnswer askStream(UUID sessionId, String question) {
-        UUID session = ensureSession(sessionId);
-        Retrieval retrieval = retrieve(question);
+    public StreamingAnswer askStream(UUID sessionId, String question, String department) {
+        UUID session = ensureSession(sessionId, department);
+        Retrieval retrieval = retrieve(question, department);
         if (retrieval == null) {
-            String fallback = "I don't have any documents to search yet. Please upload documents first.";
+            String fallback = "I don't have any documents for the " + department
+                    + " department yet. Please upload documents first.";
             return new StreamingAnswer(session, Flux.just(fallback), List.of());
         }
 
@@ -114,21 +117,27 @@ public class RagService {
         return messageRepository.findBySessionIdOrderByIdAsc(sessionId);
     }
 
-    private UUID ensureSession(UUID sessionId) {
+    private UUID ensureSession(UUID sessionId, String department) {
         if (sessionId != null && sessionRepository.existsById(sessionId)) {
             return sessionId;
         }
         UUID id = UUID.randomUUID();
-        sessionRepository.save(new ChatSession(id, Instant.now()));
+        sessionRepository.save(new ChatSession(id, Instant.now(), department));
         return id;
     }
 
-    /** Retrieve top-8 chunks; null when the store is empty. */
-    private Retrieval retrieve(String question) {
+    /**
+     * Retrieve top-8 chunks scoped to the department (metadata filter — the
+     * same mechanism Step 5 will use with JWT group claims); null when empty.
+     */
+    private Retrieval retrieve(String question, String department) {
         List<Document> chunks = vectorStore.similaritySearch(
                 SearchRequest.builder()
                         .query(question)
                         .topK(8)
+                        .filterExpression(new FilterExpressionBuilder()
+                                .eq("department", department)
+                                .build())
                         .build());
         if (chunks == null || chunks.isEmpty()) {
             return null;

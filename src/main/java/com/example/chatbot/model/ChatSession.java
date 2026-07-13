@@ -21,12 +21,17 @@ public class ChatSession {
     @Column(nullable = false)
     private Instant createdAt;
 
+    // Nullable so ddl-auto:update can add the column to pre-existing rows
+    @Column
+    private String department;
+
     protected ChatSession() {
     }
 
-    public ChatSession(UUID id, Instant createdAt) {
+    public ChatSession(UUID id, Instant createdAt, String department) {
         this.id = id;
         this.createdAt = createdAt;
+        this.department = department;
     }
 
     public UUID getId() {
@@ -35,5 +40,9 @@ public class ChatSession {
 
     public Instant getCreatedAt() {
         return createdAt;
+    }
+
+    public String getDepartment() {
+        return department;
     }
 }

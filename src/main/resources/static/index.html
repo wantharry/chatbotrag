@@ -23,6 +23,10 @@
   .hdr-btn.secondary { background: #33334d; }
   .hdr-btn:hover { filter: brightness(1.1); }
   .hdr-btn:disabled { background: #666; cursor: wait; }
+  #department {
+    background: #33334d; color: #eee; border: none; border-radius: 8px;
+    padding: 8px 10px; font-size: 14px; cursor: pointer;
+  }
   #upload-status { font-size: 13px; color: #a8b3cf; max-width: 280px; }
 
   #main { flex: 1; display: flex; overflow: hidden; }
@@ -82,6 +86,7 @@
   <div class="header-actions">
     <span id="upload-status"></span>
     <input type="file" id="file-input" hidden>
+    <select id="department" title="Department"></select>
     <button class="hdr-btn secondary" id="docs-btn">🗂 Documents</button>
     <button class="hdr-btn secondary" id="new-chat-btn">✨ New chat</button>
     <button class="hdr-btn" id="upload-btn">📄 Upload</button>
@@ -117,8 +122,21 @@ const uploadBtn = document.getElementById('upload-btn');
 const uploadStatus = document.getElementById('upload-status');
 const sidebar = document.getElementById('sidebar');
 const docList = document.getElementById('doc-list');
+const deptSelect = document.getElementById('department');
 
-let sessionId = localStorage.getItem('chatSessionId') || null;
+/* --- Department scoping: sessions and documents are per-department --- */
+let department = localStorage.getItem('chatDepartment') || 'General';
+let sessionId = localStorage.getItem('chatSessionId:' + department) || null;
+
+deptSelect.addEventListener('change', () => {
+  department = deptSelect.value;
+  localStorage.setItem('chatDepartment', department);
+  sessionId = localStorage.getItem('chatSessionId:' + department) || null;
+  chat.innerHTML = '';
+  addMsg('Switched to the ' + department + ' department.', 'bot');
+  restoreHistory();
+  loadDocuments();
+});
 
 function addMsg(text, cls) {
   const div = document.createElement('div');
@@ -151,7 +169,7 @@ async function send() {
     const res = await fetch('/api/chat/stream', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sessionId, question: q })
+      body: JSON.stringify({ sessionId, question: q, department })
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
 
@@ -179,7 +197,7 @@ async function send() {
         if (event === 'meta') {
           const meta = JSON.parse(data);
           sessionId = meta.sessionId;
-          localStorage.setItem('chatSessionId', sessionId);
+          localStorage.setItem('chatSessionId:' + department, sessionId);
           sources = meta.sources || [];
         } else if (event === 'token') {
           if (!started) { botDiv.classList.remove('thinking'); botDiv.textContent = ''; started = true; }
@@ -207,7 +225,7 @@ questionInput.addEventListener('keydown', e => { if (e.key === 'Enter') send(); 
 /* --- New chat (fresh session) --- */
 document.getElementById('new-chat-btn').addEventListener('click', () => {
   sessionId = null;
-  localStorage.removeItem('chatSessionId');
+  localStorage.removeItem('chatSessionId:' + department);
   chat.innerHTML = '';
   addMsg('New conversation started. Ask away!', 'bot');
 });
@@ -236,12 +254,14 @@ fileInput.addEventListener('change', async () => {
   uploadStatus.textContent = 'Uploading ' + file.name + '…';
   const form = new FormData();
   form.append('file', file);
+  form.append('department', department);
   try {
     const res = await fetch('/api/documents/upload', { method: 'POST', body: form });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'upload failed');
     uploadStatus.textContent = '✅ ' + data.filename + ' (' + data.chunksStored + ' chunks)';
-    addMsg('Document "' + data.filename + '" ingested (' + data.chunksStored + ' chunks). Ask away!', 'bot');
+    addMsg('Document "' + data.filename + '" ingested into ' + data.department +
+      ' (' + data.chunksStored + ' chunks). Ask away!', 'bot');
     loadDocuments();
   } catch (e) {
     uploadStatus.textContent = '❌ ' + e.message;
@@ -259,10 +279,10 @@ document.getElementById('docs-btn').addEventListener('click', () => {
 
 async function loadDocuments() {
   try {
-    const res = await fetch('/api/documents');
+    const res = await fetch('/api/documents?department=' + encodeURIComponent(department));
     const docs = await res.json();
     if (!docs.length) {
-      docList.innerHTML = '<div class="doc-empty">No documents uploaded yet.</div>';
+      docList.innerHTML = '<div class="doc-empty">No documents in ' + department + ' yet.</div>';
       return;
     }
     docList.innerHTML = '';
@@ -290,12 +310,18 @@ async function loadDocuments() {
   }
 }
 
-/* --- Retention notice --- */
+/* --- Config: retention notice + department list --- */
 fetch('/api/config').then(r => r.json()).then(cfg => {
   document.getElementById('retention-notice').textContent =
     'Chat history is stored to support follow-up questions and is automatically deleted after ' +
     cfg.retentionDays + ' days.';
-}).catch(() => {});
+  const depts = cfg.departments || ['General'];
+  if (!depts.includes(department)) { department = depts[0]; localStorage.setItem('chatDepartment', department); }
+  deptSelect.innerHTML = depts.map(d =>
+    '<option value="' + d + '"' + (d === department ? ' selected' : '') + '>🏢 ' + d + '</option>').join('');
+}).catch(() => {
+  deptSelect.innerHTML = '<option>' + department + '</option>';
+});
 
 restoreHistory();
 questionInput.focus();

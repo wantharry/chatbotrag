@@ -47,7 +47,7 @@ public class IngestionService {
     }
 
     @Transactional
-    public DocumentEntity ingest(Resource file, String filename) {
+    public DocumentEntity ingest(Resource file, String filename, String department) {
         // 1. Parse the uploaded file (PDF, DOCX, TXT, HTML, ...)
         TikaDocumentReader reader = new TikaDocumentReader(file);
         List<Document> parsed = reader.get();
@@ -55,13 +55,15 @@ public class IngestionService {
         // 2. Split into ~300-token chunks
         List<Document> chunks = splitter.apply(parsed);
 
-        // 3. Attach metadata; docId links chunks to the registry row
+        // 3. Attach metadata; docId links chunks to the registry row,
+        //    department scopes retrieval (see RagService)
         UUID docId = UUID.randomUUID();
         Instant uploadedAt = Instant.now();
         chunks.forEach(chunk -> {
             chunk.getMetadata().put("docId", docId.toString());
             chunk.getMetadata().put("filename", filename);
             chunk.getMetadata().put("uploadedAt", uploadedAt.toString());
+            chunk.getMetadata().put("department", department);
         });
 
         // 4. Embed and store in one step
@@ -69,14 +71,15 @@ public class IngestionService {
 
         // 5. Register the document
         DocumentEntity entity = documentRepository.save(
-                new DocumentEntity(docId, filename, uploadedAt, chunks.size()));
+                new DocumentEntity(docId, filename, uploadedAt, chunks.size(), department));
 
-        log.info("Ingested '{}' (docId={}): {} chunks stored", filename, docId, chunks.size());
+        log.info("Ingested '{}' (docId={}, department={}): {} chunks stored",
+                filename, docId, department, chunks.size());
         return entity;
     }
 
-    public List<DocumentEntity> listDocuments() {
-        return documentRepository.findAll();
+    public List<DocumentEntity> listDocuments(String department) {
+        return documentRepository.findByDepartmentOrderByUploadedAtDesc(department);
     }
 
     @Transactional

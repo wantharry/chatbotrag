@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import com.example.chatbot.model.DocumentEntity;
+import com.example.chatbot.service.Departments;
 import com.example.chatbot.service.IngestionService;
 
 /**
@@ -25,22 +26,32 @@ import com.example.chatbot.service.IngestionService;
 public class DocumentController {
 
     private final IngestionService ingestionService;
+    private final Departments departments;
 
-    public DocumentController(IngestionService ingestionService) {
+    public DocumentController(IngestionService ingestionService, Departments departments) {
         this.ingestionService = ingestionService;
+        this.departments = departments;
     }
 
     @PostMapping("/upload")
-    public ResponseEntity<Map<String, Object>> upload(@RequestParam("file") MultipartFile file) {
+    public ResponseEntity<Map<String, Object>> upload(@RequestParam("file") MultipartFile file,
+            @RequestParam("department") String department) {
         if (file.isEmpty()) {
             return ResponseEntity.badRequest().body(Map.of("error", "File is empty"));
         }
+        String dept;
+        try {
+            dept = departments.validate(department);
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
         String filename = file.getOriginalFilename() != null ? file.getOriginalFilename() : "unknown";
         try {
-            DocumentEntity doc = ingestionService.ingest(file.getResource(), filename);
+            DocumentEntity doc = ingestionService.ingest(file.getResource(), filename, dept);
             return ResponseEntity.ok(Map.of(
                     "id", doc.getId(),
                     "filename", doc.getFilename(),
+                    "department", doc.getDepartment(),
                     "chunksStored", doc.getChunkCount(),
                     "status", "ingested"));
         } catch (Exception e) {
@@ -50,8 +61,12 @@ public class DocumentController {
     }
 
     @GetMapping
-    public ResponseEntity<?> list() {
-        return ResponseEntity.ok(ingestionService.listDocuments());
+    public ResponseEntity<?> list(@RequestParam("department") String department) {
+        try {
+            return ResponseEntity.ok(ingestionService.listDocuments(departments.validate(department)));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
     }
 
     @DeleteMapping("/{id}")

@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import com.example.chatbot.service.Departments;
 import com.example.chatbot.service.RagService;
 
 /**
@@ -27,9 +28,11 @@ public class ChatController {
     private static final long SSE_TIMEOUT_MS = 120_000;
 
     private final RagService ragService;
+    private final Departments departments;
 
-    public ChatController(RagService ragService) {
+    public ChatController(RagService ragService, Departments departments) {
         this.ragService = ragService;
+        this.departments = departments;
     }
 
     @PostMapping
@@ -37,7 +40,13 @@ public class ChatController {
         if (request.question() == null || request.question().isBlank()) {
             return ResponseEntity.badRequest().body(Map.of("error", "Field 'question' is required"));
         }
-        RagService.RagAnswer result = ragService.ask(request.sessionId(), request.question().trim());
+        String dept;
+        try {
+            dept = departments.validate(request.department());
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(Map.of("error", e.getMessage()));
+        }
+        RagService.RagAnswer result = ragService.ask(request.sessionId(), request.question().trim(), dept);
         return ResponseEntity.ok(result);
     }
 
@@ -48,9 +57,16 @@ public class ChatController {
             emitter.completeWithError(new IllegalArgumentException("Field 'question' is required"));
             return emitter;
         }
+        String dept;
+        try {
+            dept = departments.validate(request.department());
+        } catch (IllegalArgumentException e) {
+            emitter.completeWithError(e);
+            return emitter;
+        }
 
         RagService.StreamingAnswer answer = ragService.askStream(
-                request.sessionId(), request.question().trim());
+                request.sessionId(), request.question().trim(), dept);
 
         // Send session + sources up front so the client can render metadata immediately
         try {
@@ -86,6 +102,6 @@ public class ChatController {
         return ResponseEntity.ok(ragService.history(sessionId));
     }
 
-    public record ChatRequest(UUID sessionId, String question) {
+    public record ChatRequest(UUID sessionId, String question, String department) {
     }
 }

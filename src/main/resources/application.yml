@@ -47,6 +47,11 @@ spring:
         distance-type: COSINE_DISTANCE
         index-type: HNSW
 
+# Department-scoped access: uploads and questions are tagged/filtered by one
+# of these. With SSO (Step 5) the department will come from JWT claims instead.
+chatbot:
+  departments: General,HR,Engineering,Finance
+
 ---
 # --- Alternative LLM: Google AI Studio (Gemini) via its OpenAI-compatible API ---
 # Activate with:  mvn spring-boot:run -Dspring-boot.run.profiles=gemini

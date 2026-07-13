@@ -28,14 +28,19 @@ public class DocumentEntity {
     @Column(nullable = false)
     private int chunkCount;
 
+    // Nullable so ddl-auto:update can add the column to pre-existing rows
+    @Column
+    private String department;
+
     protected DocumentEntity() {
     }
 
-    public DocumentEntity(UUID id, String filename, Instant uploadedAt, int chunkCount) {
+    public DocumentEntity(UUID id, String filename, Instant uploadedAt, int chunkCount, String department) {
         this.id = id;
         this.filename = filename;
         this.uploadedAt = uploadedAt;
         this.chunkCount = chunkCount;
+        this.department = department;
     }
 
     public UUID getId() {
@@ -52,5 +57,9 @@ public class DocumentEntity {
 
     public int getChunkCount() {
         return chunkCount;
+    }
+
+    public String getDepartment() {
+        return department;
     }
 }
