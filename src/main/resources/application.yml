@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: chatbot
+
+  # --- Step 2.6: Postgres datasource (pgvector container) ---
+  datasource:
+    url: jdbc:postgresql://localhost:5432/chatbot
+    username: chatbot
+    password: chatbot
+  jpa:
+    hibernate:
+      ddl-auto: update
+    open-in-view: false
+
+  servlet:
+    multipart:
+      max-file-size: 25MB
+      max-request-size: 25MB
+
+  ai:
+    # --- Step 2.7: Company LLM (Groq, OpenAI-compatible API) ---
+    openai:
+      base-url: https://api.groq.com/openai
+      api-key: ${GROQ_API_KEY}
+      chat:
+        options:
+          model: llama-3.3-70b-versatile
+          temperature: 0.2
+      # Disable OpenAI embeddings — we use the local ONNX model instead
+      embedding:
+        enabled: false
+
+    # --- Step 2.9: Local embedding model (all-MiniLM-L6-v2 via ONNX) ---
+    model:
+      embedding: transformers
+
+    # --- Step 2.8: pgvector configuration ---
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        dimensions: 384
+        distance-type: COSINE_DISTANCE
+        index-type: HNSW
